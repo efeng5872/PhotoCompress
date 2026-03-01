@@ -1,6 +1,5 @@
 # ===================== 全局配置 =====================
 name: Build C# EXE (SCD+FDD) and Upload to GitHub Release
-# 触发条件：自动（Tag推送）+ 手动（页面触发）
 on:
   push:
     tags: ['[vV]*']
@@ -11,50 +10,43 @@ on:
         required: true
         default: 'v1.0.0'
         type: string
-# ===================== 执行任务 =====================
+
 jobs:
   build-and-release:
     runs-on: windows-latest
     steps:
-      # 步骤1：拉取仓库代码（移除ref强制指定，避免Tag不存在导致拉取失败）
       - name: 1. 拉取仓库代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 步骤2：安装 .NET SDK
       - name: 2. 安装 .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.x' # 必改：你的项目.NET版本
+          dotnet-version: '8.x' # 必改：你的.NET版本
 
-      # 步骤3：恢复依赖
-      - name: 3. 恢复项目依赖（NuGet 包）
+      - name: 3. 恢复项目依赖
         run: dotnet restore
 
-      # 步骤4：发布 SCD 版本（包含运行时，改用绝对路径输出）
       - name: 4. 发布 SCD 版本（包含运行时）
         run: |
-          # 必改：替换为你的.csproj实际路径
           dotnet publish `
-            src/PhotoCompress.App/PhotoCompress.App.csproj `
+            src/PhotoCompress.App/PhotoCompress.App.csproj ` # 必改：你的csproj路径
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
             -o ${{ github.workspace }}\publish-scd
 
-      # 步骤5：发布 FDD 版本（不包含运行时，改用绝对路径输出）
       - name: 5. 发布 FDD 版本（不包含运行时）
         run: |
-          # 必改：和上面的.csproj路径保持一致
           dotnet publish `
-            src/PhotoCompress.App/PhotoCompress.App.csproj `
+            src/PhotoCompress.App/PhotoCompress.App.csproj ` # 必改：和上面一致
             --configuration Release `
             --runtime win-x64 `
             --self-contained false `
             -o ${{ github.workspace }}\publish-fdd
 
-      # 【新增调试步骤】确认发布文件是否生成，方便排查问题
+      # 调试：确认发布文件
       - name: 调试：查看发布目录文件
         run: |
           Write-Host "=== SCD 发布目录文件 ==="
@@ -62,42 +54,46 @@ jobs:
           Write-Host "=== FDD 发布目录文件 ==="
           Get-ChildItem ${{ github.workspace }}\publish-fdd
 
-      # 步骤6：打包 ZIP（绝对路径，确保生成在工作区根目录）
+      # 核心修复：强制固定文件名拼接，避免变量解析异常
       - name: 6. 打包两个版本为 ZIP 文件
         run: |
-          # 统一获取Tag名称，确保和上传步骤完全一致
-          $TAG = "${{ github.event.inputs.tag_name || github.ref_name }}"
+          # 强制获取Tag并清理空格（解决变量拼接异常）
+          $TAG = "${{ github.event.inputs.tag_name || github.ref_name }}".Trim()
           Write-Host "当前打包版本Tag：$TAG"
           
-          # 打包 SCD 版本（绝对路径）
+          # 手动拼接正确文件名（避免PowerShell解析陷阱）
+          $SCD_ZIP = "PhotoCompress_${TAG}-win-x64_scd.zip"
+          $FDD_ZIP = "PhotoCompress_${TAG}-win-x64_fdd.zip"
+          
+          # 打包（强制覆盖+明确文件名）
           Compress-Archive `
             -Path ${{ github.workspace }}\publish-scd\* `
-            -DestinationPath ${{ github.workspace }}\PhotoCompress_$TAG_win-x64_scd.zip `
+            -DestinationPath "${{ github.workspace }}\$SCD_ZIP" `
             -Force
-          
-          # 打包 FDD 版本（绝对路径）
           Compress-Archive `
             -Path ${{ github.workspace }}\publish-fdd\* `
-            -DestinationPath ${{ github.workspace }}\PhotoCompress_$TAG_win-x64_fdd.zip `
+            -DestinationPath "${{ github.workspace }}\$FDD_ZIP" `
             -Force
+          
+          # 打印最终生成的文件名（方便核对）
+          Write-Host "生成的SCD包：$SCD_ZIP"
+          Write-Host "生成的FDD包：$FDD_ZIP"
 
-      # 【新增调试步骤】确认ZIP包是否生成
+      # 调试：确认ZIP文件
       - name: 调试：查看根目录ZIP文件
         run: |
           Write-Host "=== 工作区根目录ZIP文件 ==="
           Get-ChildItem ${{ github.workspace }} -Filter *.zip
 
-      # 步骤7：上传 Release（通配符匹配，彻底解决文件名匹配问题）
+      # 核心修复：上传步骤直接指定生成的文件名（100%匹配）
       - name: 7. 上传 ZIP 包到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # 明确指定Tag（手动/自动统一）
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          # 通配符匹配所有符合规则的ZIP包，只要生成了就能上传
+          # 直接指定ZIP文件路径（用变量确保和打包步骤完全一致）
           files: |
-            ${{ github.workspace }}\*_scd.zip
-            ${{ github.workspace }}\*_fdd.zip
-          # 发布说明
+            ${{ github.workspace }}\PhotoCompress_${{ github.event.inputs.tag_name || github.ref_name }}-win-x64_scd.zip
+            ${{ github.workspace }}\PhotoCompress_${{ github.event.inputs.tag_name || github.ref_name }}-win-x64_fdd.zip
           body: |
             📦 版本说明：
             - scd 版本：包含 .NET 运行时，Windows x64 双击即可运行（体积较大）
