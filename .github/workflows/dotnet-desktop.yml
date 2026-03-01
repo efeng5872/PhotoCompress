@@ -2,12 +2,20 @@
 # 1. 工作流名称（在 GitHub Actions 页面显示的名称，可自定义）
 name: Build C# EXE (SCD+FDD) and Upload to GitHub Release
 
-# 2. 触发条件：当推送「v/V开头」的版本Tag时自动执行（兼容大小写v）
-# [vV]* 表示匹配所有以小写v或大写V开头的Tag，比如 v1.0.0、V2.1.0、v0.9.1-beta 等
-# 若只想匹配小写v，可改回 'v*'；若想匹配任意Tag，可改 '*'（不推荐，易误触发）
+# 2. 触发条件：
+# - 自动触发：推送「v/V开头」的版本Tag时
+# - 手动触发：在Actions页面点击「Run workflow」手动触发（新增）
 on:
   push:
     tags: ['[vV]*']
+  # ========== 新增：手动触发配置 ==========
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '指定要打包的版本Tag名称（如 v1.0.0、V2.1.0）'
+        required: true          # 必须输入Tag名称
+        default: 'v1.0.0'       # 默认值（可修改）
+        type: string            # 输入类型为字符串
 
 # ===================== 执行任务 =====================
 jobs:
@@ -20,15 +28,12 @@ jobs:
     steps:
       # 步骤1：拉取仓库代码到虚拟机
       - name: 1. 拉取仓库代码
-        # 使用 GitHub 官方的拉取代码动作
         uses: actions/checkout@v4
         with:
-          # fetch-depth: 0 表示拉取完整的提交历史（避免编译时缺失依赖）
-          fetch-depth: 0
+          fetch-depth: 0  # 拉取完整的提交历史（避免编译时缺失依赖）
 
       # 步骤2：安装 .NET SDK（匹配你的项目版本）
       - name: 2. 安装 .NET SDK
-        # 使用 GitHub 官方的 .NET 环境配置动作
         uses: actions/setup-dotnet@v4
         with:
           # ========== 必改项1 ==========
@@ -38,12 +43,10 @@ jobs:
 
       # 步骤3：恢复项目依赖（如 NuGet 包）
       - name: 3. 恢复项目依赖（NuGet 包）
-        # dotnet restore 会自动读取 .csproj 文件，下载所需的 NuGet 包
-        run: dotnet restore
+        run: dotnet restore  # 自动读取 .csproj 文件，下载所需的 NuGet 包
 
       # 步骤4：发布【包含 .NET 运行时】版本（SCD - 独立部署）
       - name: 4. 发布 SCD 版本（包含运行时，双击即可运行）
-        # 使用 PowerShell 执行 dotnet publish 命令（Windows 环境默认用 PowerShell）
         run: |
           dotnet publish `
             # ========== 必改项2 ==========
@@ -70,27 +73,30 @@ jobs:
       # 步骤6：将两个版本分别打包为 ZIP（方便下载，避免多个零散文件）
       - name: 6. 打包两个版本为 ZIP 文件
         run: |
+          # 新增：判断是手动触发还是自动触发，获取正确的Tag名称
+          $TAG_NAME = if ('${{ github.event.inputs.tag_name }}' -ne '') { '${{ github.event.inputs.tag_name }}' } else { '${{ github.ref_name }}' }
+          
           # 打包 SCD 版本（文件名含 scd 标识，且带上 Tag 版本号）
           Compress-Archive `
             -Path ./publish-scd/* `            # 要打包的文件：publish-scd 目录下的所有文件
             # 压缩包命名：项目名_版本号_系统架构_scd.zip（如 PhotoCompress_v1.0.0_win-x64_scd.zip）
-            -DestinationPath ./PhotoCompress_v${{ github.ref_name }}_win-x64_scd.zip
+            -DestinationPath ./PhotoCompress_$TAG_NAME_win-x64_scd.zip
           
           # 打包 FDD 版本（文件名含 fdd 标识，同理）
           Compress-Archive `
             -Path ./publish-fdd/* `
-            -DestinationPath ./PhotoCompress_v${{ github.ref_name }}_win-x64_fdd.zip
-          # 注：${{ github.ref_name }} 是 GitHub 内置变量，自动获取当前 Tag 名称（如 v1.0.0）
+            -DestinationPath ./PhotoCompress_$TAG_NAME_win-x64_fdd.zip
 
       # 步骤7：自动创建 GitHub Release 并上传两个 ZIP 包
       - name: 7. 上传 ZIP 包到 GitHub Release
-        # 使用第三方开源动作（softprops/action-gh-release），专门用于上传 Release 资产
         uses: softprops/action-gh-release@v2
         with:
+          # 新增：动态指定Tag名称（适配手动/自动触发）
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           # 指定要上传的文件：两个 ZIP 包都上传
           files: |
-            ./PhotoCompress_v${{ github.ref_name }}_win-x64_scd.zip
-            ./PhotoCompress_v${{ github.ref_name }}_win-x64_fdd.zip
+            ./PhotoCompress_${{ github.event.inputs.tag_name || github.ref_name }}_win-x64_scd.zip
+            ./PhotoCompress_${{ github.event.inputs.tag_name || github.ref_name }}_win-x64_fdd.zip
           # Release 页面的描述（可自定义，用户下载时能看到）
           body: |
             📦 版本说明：
