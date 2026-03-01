@@ -1,62 +1,45 @@
 # ===================== 全局配置 =====================
-# 1. 工作流名称（在 GitHub Actions 页面显示的名称，可自定义）
 name: Build C# EXE (SCD+FDD) and Upload to GitHub Release
 
-# 2. 触发条件：
-# - 自动触发：推送「v/V开头」的版本Tag时
-# - 手动触发：在Actions页面点击「Run workflow」手动触发
+# 触发条件：自动（Tag推送）+ 手动（页面触发）
 on:
   push:
     tags: ['[vV]*']
-  # ========== 手动触发配置 ==========
   workflow_dispatch:
     inputs:
       tag_name:
         description: '指定要打包的版本Tag名称（如 v1.0.0、V2.1.0）'
-        required: true          # 必须输入Tag名称
-        default: 'v1.0.0'       # 默认值（可修改）
-        type: string            # 输入类型为字符串
+        required: true
+        default: 'v1.0.0'
+        type: string
 
 # ===================== 执行任务 =====================
 jobs:
-  # 定义一个名为 build-and-release 的任务（名称可自定义）
   build-and-release:
-    # 运行环境：GitHub 提供的最新版 Windows 虚拟机（编译 Windows exe 必须用 Windows）
     runs-on: windows-latest
-
-    # 任务步骤（按顺序执行）
     steps:
-      # 步骤1：拉取仓库代码到虚拟机
+      # 步骤1：拉取代码（手动触发时需拉取指定Tag的代码）
       - name: 1. 拉取仓库代码
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 拉取完整的提交历史（避免编译时缺失依赖）
+          fetch-depth: 0
+          # 手动触发时，切换到指定Tag；自动触发时，用当前Tag
+          ref: ${{ github.event.inputs.tag_name || github.ref_name }}
 
-      # 步骤2：安装 .NET SDK（匹配你的项目版本）
+      # 步骤2：安装 .NET SDK
       - name: 2. 安装 .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          # ========== 必改项1 ==========
-          # 改成你的项目实际使用的 .NET 版本（如 6.x/7.x/8.x）
-          # 可在项目的 .csproj 文件中查看 <TargetFramework> 节点确认
-          dotnet-version: '8.x'
+          dotnet-version: '8.x' # 必改：你的项目.NET版本
 
-      # 步骤3：恢复项目依赖（如 NuGet 包）
+      # 步骤3：恢复依赖
       - name: 3. 恢复项目依赖（NuGet 包）
-        run: dotnet restore  # 自动读取 .csproj 文件，下载所需的 NuGet 包
+        run: dotnet restore
 
-      # 步骤4：发布【包含 .NET 运行时】版本（SCD - 独立部署）
-      - name: 4. 发布 SCD 版本（包含运行时，双击即可运行）
+      # 步骤4：发布 SCD 版本（包含运行时）
+      - name: 4. 发布 SCD 版本（包含运行时）
         run: |
-          # ========== 必改项2 ==========
-          # 替换为你的 .csproj 项目文件路径+名称（相对仓库根目录）
-          # 示例1：项目文件在根目录 → PhotoCompress.App.csproj
-          # 示例2：项目文件在 src 目录 → src/PhotoCompress.App.csproj
-          # 编译说明：
-          # --configuration Release：编译 Release 版本（优化后的正式版）
-          # --runtime win-x64：目标架构：Windows 64位（主流架构）
-          # --self-contained true：独立部署：包含完整的 .NET 运行时
-          # -o ./publish-scd：输出目录：仓库根目录下的 publish-scd 文件夹
+          # 必改：替换为你的.csproj实际路径
           dotnet publish `
             src/PhotoCompress.App/PhotoCompress.App.csproj `
             --configuration Release `
@@ -64,13 +47,10 @@ jobs:
             --self-contained true `
             -o ./publish-scd
 
-      # 步骤5：发布【不包含 .NET 运行时】版本（FDD - 依赖框架部署）
-      - name: 5. 发布 FDD 版本（不包含运行时，体积更小）
+      # 步骤5：发布 FDD 版本（不包含运行时）
+      - name: 5. 发布 FDD 版本（不包含运行时）
         run: |
-          # ========== 必改项2（和上面保持一致） ==========
-          # 编译说明：
-          # --self-contained false：依赖框架：不包含 .NET 运行时（用户需自行安装）
-          # -o ./publish-fdd：输出目录：publish-fdd 文件夹
+          # 必改：和上面的.csproj路径保持一致
           dotnet publish `
             src/PhotoCompress.App/PhotoCompress.App.csproj `
             --configuration Release `
@@ -78,38 +58,31 @@ jobs:
             --self-contained false `
             -o ./publish-fdd
 
-      # 步骤6：将两个版本分别打包为 ZIP（方便下载，避免多个零散文件）
+      # 步骤6：打包 ZIP（统一用GitHub表达式，避免PowerShell变量问题）
       - name: 6. 打包两个版本为 ZIP 文件
         run: |
-          # 判断是手动触发还是自动触发，获取正确的Tag名称
-          $TAG_NAME = if ('${{ github.event.inputs.tag_name }}' -ne '') { '${{ github.event.inputs.tag_name }}' } else { '${{ github.ref_name }}' }
-          
-          # 打包 SCD 版本（文件名含 scd 标识，且带上 Tag 版本号）
-          Compress-Archive `
-            -Path ./publish-scd/* `
-            -DestinationPath ./PhotoCompress_$TAG_NAME_win-x64_scd.zip
-          
-          # 打包 FDD 版本（文件名含 fdd 标识，同理）
-          Compress-Archive `
-            -Path ./publish-fdd/* `
-            -DestinationPath ./PhotoCompress_$TAG_NAME_win-x64_fdd.zip
+          # 统一使用固定的Tag名称变量（GitHub表达式）
+          $TAG = "${{ github.event.inputs.tag_name || github.ref_name }}"
+          # 打包 SCD 版本
+          Compress-Archive -Path ./publish-scd/* -DestinationPath "PhotoCompress_$TAG_win-x64_scd.zip"
+          # 打包 FDD 版本
+          Compress-Archive -Path ./publish-fdd/* -DestinationPath "PhotoCompress_$TAG_win-x64_fdd.zip"
 
-      # 步骤7：自动创建 GitHub Release 并上传两个 ZIP 包
+      # 步骤7：上传 Release（权限已开启，文件名完全匹配）
       - name: 7. 上传 ZIP 包到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # 动态指定Tag名称（适配手动/自动触发）
+          # 明确指定Tag（手动/自动统一）
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          # 指定要上传的文件：两个 ZIP 包都上传
+          # 文件名和打包步骤完全一致（用引号避免路径解析问题）
           files: |
             ./PhotoCompress_${{ github.event.inputs.tag_name || github.ref_name }}_win-x64_scd.zip
             ./PhotoCompress_${{ github.event.inputs.tag_name || github.ref_name }}_win-x64_fdd.zip
-          # Release 页面的描述（可自定义，用户下载时能看到）
+          # 发布说明
           body: |
             📦 版本说明：
-            - scd 版本：包含 .NET 运行时，Windows x64 系统双击 exe 即可运行（体积较大）
+            - scd 版本：包含 .NET 运行时，Windows x64 双击即可运行（体积较大）
             - fdd 版本：不包含 .NET 运行时，需先安装 .NET 8.0 运行时（体积更小）
-            📥 .NET 运行时下载地址：https://dotnet.microsoft.com/zh-cn/download/dotnet/8.0
-        # 环境变量：GitHub 自动生成的令牌（无需手动配置，默认有上传 Release 的权限）
+            📥 .NET 运行时下载：https://dotnet.microsoft.com/zh-cn/download/dotnet/8.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
