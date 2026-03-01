@@ -29,7 +29,7 @@ jobs:
           dotnet-version: '8.x'  # 建议改为具体的稳定版本（如8.1.x）
 
       - name: 3. 恢复项目依赖
-        run: dotnet restore src/PhotoCompress.sln  # 建议指向解决方案文件
+        run: dotnet restore PhotoCompress.sln  # 建议指向解决方案文件
 
       - name: 4. 构建并发布 SCD 版本
         run: |
@@ -82,8 +82,8 @@ jobs:
       - name: 调试：验证ZIP文件
         if: always()
         run: |
-          Get-Item ${{ steps.generate-zip.outputs.scd_zip }}
-          Get-Item ${{ steps.generate-zip.outputs.fdd_zip }}
+          Get-Item -Path ${{ steps.generate-zip.outputs.scd_zip }}
+          Get-Item -Path ${{ steps.generate-zip.outputs.fdd_zip }}
 
       # 核心优化：安全上传Release
       - name: 7. 上传发布包到GitHub Release
