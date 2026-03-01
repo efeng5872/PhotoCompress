@@ -1,0 +1,102 @@
+# ===================== 全局配置 =====================
+# 1. 工作流名称（在 GitHub Actions 页面显示的名称，可自定义）
+name: Build C# EXE (SCD+FDD) and Upload to GitHub Release
+
+# 2. 触发条件：当推送「v/V开头」的版本Tag时自动执行（兼容大小写v）
+# [vV]* 表示匹配所有以小写v或大写V开头的Tag，比如 v1.0.0、V2.1.0、v0.9.1-beta 等
+# 若只想匹配小写v，可改回 'v*'；若想匹配任意Tag，可改 '*'（不推荐，易误触发）
+on:
+  push:
+    tags: ['[vV]*']
+
+# ===================== 执行任务 =====================
+jobs:
+  # 定义一个名为 build-and-release 的任务（名称可自定义）
+  build-and-release:
+    # 运行环境：GitHub 提供的最新版 Windows 虚拟机（编译 Windows exe 必须用 Windows）
+    runs-on: windows-latest
+
+    # 任务步骤（按顺序执行）
+    steps:
+      # 步骤1：拉取仓库代码到虚拟机
+      - name: 1. 拉取仓库代码
+        # 使用 GitHub 官方的拉取代码动作
+        uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 表示拉取完整的提交历史（避免编译时缺失依赖）
+          fetch-depth: 0
+
+      # 步骤2：安装 .NET SDK（匹配你的项目版本）
+      - name: 2. 安装 .NET SDK
+        # 使用 GitHub 官方的 .NET 环境配置动作
+        uses: actions/setup-dotnet@v4
+        with:
+          # ========== 必改项1 ==========
+          # 改成你的项目实际使用的 .NET 版本（如 6.x/7.x/8.x）
+          # 可在项目的 .csproj 文件中查看 <TargetFramework> 节点确认
+          dotnet-version: '8.x'
+
+      # 步骤3：恢复项目依赖（如 NuGet 包）
+      - name: 3. 恢复项目依赖（NuGet 包）
+        # dotnet restore 会自动读取 .csproj 文件，下载所需的 NuGet 包
+        run: dotnet restore
+
+      # 步骤4：发布【包含 .NET 运行时】版本（SCD - 独立部署）
+      - name: 4. 发布 SCD 版本（包含运行时，双击即可运行）
+        # 使用 PowerShell 执行 dotnet publish 命令（Windows 环境默认用 PowerShell）
+        run: |
+          dotnet publish `
+            # ========== 必改项2 ==========
+            # 替换为你的 .csproj 项目文件路径+名称（相对仓库根目录）
+            # 示例1：项目文件在根目录 → PhotoCompress.App.csproj
+            # 示例2：项目文件在 src 目录 → src/PhotoCompress.App.csproj
+            src/PhotoCompress.App/PhotoCompress.App.csproj `
+            --configuration Release `          # 编译 Release 版本（优化后的正式版）
+            --runtime win-x64 `                # 目标架构：Windows 64位（主流架构）
+            --self-contained true `            # 独立部署：包含完整的 .NET 运行时
+            -o ./publish-scd                   # 输出目录：仓库根目录下的 publish-scd 文件夹
+
+      # 步骤5：发布【不包含 .NET 运行时】版本（FDD - 依赖框架部署）
+      - name: 5. 发布 FDD 版本（不包含运行时，体积更小）
+        run: |
+          dotnet publish `
+            # ========== 必改项2（和上面保持一致） ==========
+            src/PhotoCompress.App/PhotoCompress.App.csproj `
+            --configuration Release `          # 同样编译 Release 版本
+            --runtime win-x64 `                # 同样针对 Windows 64位
+            --self-contained false `           # 依赖框架：不包含 .NET 运行时（用户需自行安装）
+            -o ./publish-fdd                   # 输出目录：publish-fdd 文件夹
+
+      # 步骤6：将两个版本分别打包为 ZIP（方便下载，避免多个零散文件）
+      - name: 6. 打包两个版本为 ZIP 文件
+        run: |
+          # 打包 SCD 版本（文件名含 scd 标识，且带上 Tag 版本号）
+          Compress-Archive `
+            -Path ./publish-scd/* `            # 要打包的文件：publish-scd 目录下的所有文件
+            # 压缩包命名：项目名_版本号_系统架构_scd.zip（如 PhotoCompress_v1.0.0_win-x64_scd.zip）
+            -DestinationPath ./PhotoCompress_v${{ github.ref_name }}_win-x64_scd.zip
+          
+          # 打包 FDD 版本（文件名含 fdd 标识，同理）
+          Compress-Archive `
+            -Path ./publish-fdd/* `
+            -DestinationPath ./PhotoCompress_v${{ github.ref_name }}_win-x64_fdd.zip
+          # 注：${{ github.ref_name }} 是 GitHub 内置变量，自动获取当前 Tag 名称（如 v1.0.0）
+
+      # 步骤7：自动创建 GitHub Release 并上传两个 ZIP 包
+      - name: 7. 上传 ZIP 包到 GitHub Release
+        # 使用第三方开源动作（softprops/action-gh-release），专门用于上传 Release 资产
+        uses: softprops/action-gh-release@v2
+        with:
+          # 指定要上传的文件：两个 ZIP 包都上传
+          files: |
+            ./PhotoCompress_v${{ github.ref_name }}_win-x64_scd.zip
+            ./PhotoCompress_v${{ github.ref_name }}_win-x64_fdd.zip
+          # Release 页面的描述（可自定义，用户下载时能看到）
+          body: |
+            📦 版本说明：
+            - scd 版本：包含 .NET 运行时，Windows x64 系统双击 exe 即可运行（体积较大）
+            - fdd 版本：不包含 .NET 运行时，需先安装 .NET 8.0 运行时（体积更小）
+            📥 .NET 运行时下载地址：https://dotnet.microsoft.com/zh-cn/download/dotnet/8.0
+        # 环境变量：GitHub 自动生成的令牌（无需手动配置，默认有上传 Release 的权限）
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
