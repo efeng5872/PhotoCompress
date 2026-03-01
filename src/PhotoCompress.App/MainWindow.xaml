@@ -1,0 +1,124 @@
+<Window x:Class="PhotoCompress.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="PhotoCompress" Height="760" Width="900" MinHeight="720" MinWidth="900">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="130" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="110" />
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="输入文件" />
+        <TextBox x:Name="InputPathTextBox" Grid.Row="0" Grid.Column="1" Margin="0,0,8,8" IsReadOnly="True" />
+        <Button Grid.Row="0" Grid.Column="2" Margin="0,0,0,8" Content="浏览..." Click="OnBrowseInputClick" />
+
+        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="输出文件" />
+        <TextBox x:Name="OutputPathTextBox" Grid.Row="1" Grid.Column="1" Margin="0,0,8,8" IsReadOnly="True" />
+        <Button Grid.Row="1" Grid.Column="2" Margin="0,0,0,8" Content="另存为..." Click="OnBrowseOutputClick" />
+
+        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="输出格式" />
+        <ComboBox x:Name="OutputFormatComboBox"
+                  Grid.Row="2"
+                  Grid.Column="1"
+                  Margin="0,0,8,8"
+                  SelectedIndex="0"
+                  SelectionChanged="OnOutputFormatSelectionChanged">
+            <ComboBoxItem Content="自动（保持原格式）" Tag="" />
+            <ComboBoxItem Content="JPEG (.jpg)" Tag="jpeg" />
+            <ComboBoxItem Content="PNG (.png)" Tag="png" />
+            <ComboBoxItem Content="WEBP (.webp)" Tag="webp" />
+            <ComboBoxItem Content="BMP (.bmp)" Tag="bmp" />
+            <ComboBoxItem Content="GIF (.gif)" Tag="gif" />
+            <ComboBoxItem Content="TIFF (.tif)" Tag="tiff" />
+        </ComboBox>
+
+        <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Top" Margin="0,4,0,0" Text="目标大小 (KB)" />
+        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Vertical" Margin="0,0,8,8">
+            <Slider x:Name="TargetSizeSlider"
+                    Minimum="1"
+                    Maximum="10240"
+                    Value="300"
+                    IsSnapToTickEnabled="False"
+                    TickFrequency="10"
+                    ValueChanged="OnTargetSizeSliderChanged" />
+            <TextBlock x:Name="TargetRangeHintTextBlock" Margin="0,4,0,0" Foreground="#666666" Text="滑块范围：1 ~ 10240 KB（可手工输入超出范围）" />
+        </StackPanel>
+        <TextBox x:Name="TargetSizeKbTextBox"
+                 Grid.Row="3"
+                 Grid.Column="2"
+                 Margin="0,0,0,8"
+                 VerticalContentAlignment="Center"
+                 Text="300"
+                 TextChanged="OnTargetSizeTextChanged" />
+
+        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Top" Margin="0,4,0,0" Text="缩放比例 (%)" />
+        <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Vertical" Margin="0,0,8,8">
+            <Slider x:Name="ScalePercentSlider"
+                    Minimum="1"
+                    Maximum="100"
+                    Value="100"
+                    IsSnapToTickEnabled="False"
+                    TickFrequency="1"
+                    ValueChanged="OnScalePercentSliderChanged" />
+            <TextBlock x:Name="SuggestedScaleTextBlock" Margin="0,4,0,0" Foreground="#666666" Text="建议缩放：--（可手工修改）" />
+        </StackPanel>
+        <TextBox x:Name="ScalePercentTextBox"
+                 Grid.Row="4"
+                 Grid.Column="2"
+                 Margin="0,0,0,8"
+                 VerticalContentAlignment="Center"
+                 Text="100"
+                 TextChanged="OnScalePercentTextChanged" />
+
+        <StackPanel Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,4,0,8" Orientation="Horizontal">
+            <Button x:Name="StartCompressButton" Width="120" Height="32" Content="开始压缩" Click="OnCompressClick" />
+            <Button x:Name="BatchPlaceholderButton" Margin="8,0,0,0" Width="140" Height="32" Content="批量处理（后续）" IsEnabled="False" />
+        </StackPanel>
+
+        <GroupBox Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,8" Header="压缩信息">
+            <TabControl Margin="8" x:Name="InfoTabControl" SelectionChanged="OnInfoTabSelectionChanged">
+                <TabItem Header="预估">
+                    <RichTextBox x:Name="EstimateRichTextBox"
+                                 Margin="8"
+                                 MinHeight="300"
+                                 VerticalScrollBarVisibility="Auto"
+                                 IsReadOnly="True" />
+                </TabItem>
+                <TabItem Header="结果">
+                    <RichTextBox x:Name="ResultRichTextBox"
+                                 Margin="8"
+                                 MinHeight="300"
+                                 VerticalScrollBarVisibility="Auto"
+                                 IsReadOnly="True" />
+                </TabItem>
+            </TabControl>
+        </GroupBox>
+
+        <GroupBox Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,8" Header="后续扩展预留">
+            <Grid Margin="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="进度" />
+                <ProgressBar Grid.Column="1" Margin="8,0,8,0" Height="18" IsIndeterminate="False" Minimum="0" Maximum="100" Value="0" IsEnabled="False" />
+                <Button Grid.Column="2" Width="90" Height="26" Content="取消" IsEnabled="False" />
+            </Grid>
+        </GroupBox>
+    </Grid>
+</Window>
