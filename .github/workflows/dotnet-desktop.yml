@@ -1,6 +1,5 @@
 # ===================== 全局配置 =====================
 name: Build C# EXE (SCD+FDD) and Upload to GitHub Release
-
 # 触发条件：自动（Tag推送）+ 手动（页面触发）
 on:
   push:
@@ -12,19 +11,16 @@ on:
         required: true
         default: 'v1.0.0'
         type: string
-
 # ===================== 执行任务 =====================
 jobs:
   build-and-release:
     runs-on: windows-latest
     steps:
-      # 步骤1：拉取代码（手动触发时需拉取指定Tag的代码）
+      # 步骤1：拉取仓库代码（移除ref强制指定，避免Tag不存在导致拉取失败）
       - name: 1. 拉取仓库代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # 手动触发时，切换到指定Tag；自动触发时，用当前Tag
-          ref: ${{ github.event.inputs.tag_name || github.ref_name }}
 
       # 步骤2：安装 .NET SDK
       - name: 2. 安装 .NET SDK
@@ -36,7 +32,7 @@ jobs:
       - name: 3. 恢复项目依赖（NuGet 包）
         run: dotnet restore
 
-      # 步骤4：发布 SCD 版本（包含运行时）
+      # 步骤4：发布 SCD 版本（包含运行时，改用绝对路径输出）
       - name: 4. 发布 SCD 版本（包含运行时）
         run: |
           # 必改：替换为你的.csproj实际路径
@@ -45,9 +41,9 @@ jobs:
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
-            -o ./publish-scd
+            -o ${{ github.workspace }}\publish-scd
 
-      # 步骤5：发布 FDD 版本（不包含运行时）
+      # 步骤5：发布 FDD 版本（不包含运行时，改用绝对路径输出）
       - name: 5. 发布 FDD 版本（不包含运行时）
         run: |
           # 必改：和上面的.csproj路径保持一致
@@ -56,28 +52,51 @@ jobs:
             --configuration Release `
             --runtime win-x64 `
             --self-contained false `
-            -o ./publish-fdd
+            -o ${{ github.workspace }}\publish-fdd
 
-      # 步骤6：打包 ZIP（统一用GitHub表达式，避免PowerShell变量问题）
+      # 【新增调试步骤】确认发布文件是否生成，方便排查问题
+      - name: 调试：查看发布目录文件
+        run: |
+          Write-Host "=== SCD 发布目录文件 ==="
+          Get-ChildItem ${{ github.workspace }}\publish-scd
+          Write-Host "=== FDD 发布目录文件 ==="
+          Get-ChildItem ${{ github.workspace }}\publish-fdd
+
+      # 步骤6：打包 ZIP（绝对路径，确保生成在工作区根目录）
       - name: 6. 打包两个版本为 ZIP 文件
         run: |
-          # 统一使用固定的Tag名称变量（GitHub表达式）
+          # 统一获取Tag名称，确保和上传步骤完全一致
           $TAG = "${{ github.event.inputs.tag_name || github.ref_name }}"
-          # 打包 SCD 版本
-          Compress-Archive -Path ./publish-scd/* -DestinationPath "PhotoCompress_$TAG_win-x64_scd.zip"
-          # 打包 FDD 版本
-          Compress-Archive -Path ./publish-fdd/* -DestinationPath "PhotoCompress_$TAG_win-x64_fdd.zip"
+          Write-Host "当前打包版本Tag：$TAG"
+          
+          # 打包 SCD 版本（绝对路径）
+          Compress-Archive `
+            -Path ${{ github.workspace }}\publish-scd\* `
+            -DestinationPath ${{ github.workspace }}\PhotoCompress_$TAG_win-x64_scd.zip `
+            -Force
+          
+          # 打包 FDD 版本（绝对路径）
+          Compress-Archive `
+            -Path ${{ github.workspace }}\publish-fdd\* `
+            -DestinationPath ${{ github.workspace }}\PhotoCompress_$TAG_win-x64_fdd.zip `
+            -Force
 
-      # 步骤7：上传 Release（权限已开启，文件名完全匹配）
+      # 【新增调试步骤】确认ZIP包是否生成
+      - name: 调试：查看根目录ZIP文件
+        run: |
+          Write-Host "=== 工作区根目录ZIP文件 ==="
+          Get-ChildItem ${{ github.workspace }} -Filter *.zip
+
+      # 步骤7：上传 Release（通配符匹配，彻底解决文件名匹配问题）
       - name: 7. 上传 ZIP 包到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           # 明确指定Tag（手动/自动统一）
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          # 文件名和打包步骤完全一致（用引号避免路径解析问题）
+          # 通配符匹配所有符合规则的ZIP包，只要生成了就能上传
           files: |
-            ./PhotoCompress_${{ github.event.inputs.tag_name || github.ref_name }}_win-x64_scd.zip
-            ./PhotoCompress_${{ github.event.inputs.tag_name || github.ref_name }}_win-x64_fdd.zip
+            ${{ github.workspace }}\*_scd.zip
+            ${{ github.workspace }}\*_fdd.zip
           # 发布说明
           body: |
             📦 版本说明：
